@@ -1,0 +1,11 @@
+{
+  "name": "Tarik Gaji",
+  "short_name": "TarikGaji",
+  "description": "Multi-Group Savings Tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4F46E5",
+  "orientation": "portrait",
+  "icons": []
+}
