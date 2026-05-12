@@ -17,7 +17,11 @@ export default function PaymentsPage() {
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1)
   const [expandedMember, setExpandedMember] = useState<string | null>(null)
   const [showAddPayment, setShowAddPayment] = useState<string | null>(null)
-  const [newPaymentAmount, setNewPaymentAmount] = useState<number>(0)
+  const [newPaymentAmount, setNewPaymentAmount] = useState<string>('')
+  const [selectedMember, setSelectedMember] = useState<string>('')
+  const [manualPaymentAmount, setManualPaymentAmount] = useState<number>(0)
+  const [manualPaymentNotes, setManualPaymentNotes] = useState<string>('')
+  const [showManualPayment, setShowManualPayment] = useState<boolean>(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -110,15 +114,31 @@ export default function PaymentsPage() {
 
   const loadPaymentEntries = async () => {
     if (!activeCycle) return
-    const { data } = await supabase
+    
+    console.log('Loading payments for cycle:', activeCycle.id, 'month:', selectedMonth)
+    
+    const { data, error } = await supabase
       .from('payment_entries')
-      .select('*, members!inner(member_id)')
+      .select('*')
       .eq('cycle_id', activeCycle.id)
       .eq('month_number', selectedMonth)
       .order('recorded_at', { ascending: false })
     
-    // Filter out deleted members
-    const validEntries = data?.filter(entry => entry.members) || []
+    if (error) {
+      console.error('Error loading payment entries:', error)
+      setPaymentEntries([])
+      return
+    }
+    
+    console.log('Raw payment entries from DB:', data)
+    
+    // Filter out payments for deleted members by checking member is_active status
+    const validEntries = data?.filter(entry => {
+      const member = members.find(m => m.id === entry.member_id)
+      return member && member.is_active
+    }) || []
+    
+    console.log('Filtered payment entries:', validEntries)
     setPaymentEntries(validEntries)
   }
 
@@ -134,22 +154,44 @@ export default function PaymentsPage() {
   }
 
   const handleAddPayment = async (memberId: string) => {
-    if (!activeCycle || newPaymentAmount <= 0) return
+    const amount = Number(newPaymentAmount)
+    console.log('Adding payment:', { memberId, amount, activeCycle, selectedMonth, notes: manualPaymentAmount })
+    
+    if (!activeCycle) {
+      alert('Error: No active cycle found')
+      return
+    }
+    if (!newPaymentAmount) {
+      alert('Error: Please enter an amount')
+      return
+    }
+    if (amount <= 0) {
+      alert('Error: Amount must be greater than 0')
+      return
+    }
 
     const { error } = await supabase.from('payment_entries').insert({
       cycle_id: activeCycle.id,
       member_id: memberId,
       month_number: selectedMonth,
-      amount: newPaymentAmount,
+      amount: amount,
+      notes: manualPaymentNotes,
     })
 
     if (!error) {
-      setNewPaymentAmount(0)
+      alert('Payment added successfully!')
+      setNewPaymentAmount('')
+      setManualPaymentNotes('')
       setShowAddPayment(null)
-      loadPaymentSummary()
-      loadPaymentEntries()
+      
+      // Wait a moment for database to update, then reload
+      setTimeout(async () => {
+        await loadPaymentSummary()
+        await loadPaymentEntries()
+      }, 500)
     } else {
       alert('Error adding payment: ' + error.message)
+      console.error('Payment insertion error:', error)
     }
   }
 
@@ -162,6 +204,30 @@ export default function PaymentsPage() {
       } else {
         alert('Error deleting payment: ' + error.message)
       }
+    }
+  }
+
+  const handleManualPayment = async () => {
+    if (!activeCycle || !selectedMember || manualPaymentAmount <= 0) return
+
+    const { error } = await supabase.from('payment_entries').insert({
+      cycle_id: activeCycle.id,
+      member_id: selectedMember,
+      month_number: selectedMonth,
+      amount: manualPaymentAmount,
+      notes: manualPaymentNotes,
+    })
+
+    if (!error) {
+      setSelectedMember('')
+      setManualPaymentAmount(0)
+      setManualPaymentNotes('')
+      setShowManualPayment(false)
+      loadPaymentSummary()
+      loadPaymentEntries()
+      alert('Payment added successfully!')
+    } else {
+      alert('Error adding payment: ' + error.message)
     }
   }
 
@@ -191,7 +257,9 @@ export default function PaymentsPage() {
   }
 
   const getMemberPayments = (memberId: string) => {
-    return paymentEntries.filter(p => p.member_id === memberId)
+    const payments = paymentEntries.filter(p => p.member_id === memberId)
+    console.log(`Payments for member ${memberId}:`, payments)
+    return payments
   }
 
   const getMemberSummary = (memberId: string) => {
@@ -246,25 +314,37 @@ export default function PaymentsPage() {
           </select>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">Collection Summary</h3>
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-600">Total Collected:</span>
-                <span className="font-bold text-green-600">BND{totalCollected}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-600">Total Outstanding:</span>
-                <span className="font-bold text-red-600">BND{totalOutstanding}</span>
-              </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">Collection Summary</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="text-center">
+              <p className="text-sm text-slate-600 mb-1">Total Collected</p>
+              <p className="text-2xl font-bold text-green-600">BND{totalCollected}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-slate-600 mb-1">Expected Amount</p>
+              <p className="text-2xl font-bold text-red-600">BND{totalOutstanding}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-slate-600 mb-1">Active Members</p>
+              <p className="text-2xl font-bold text-blue-600">{members.length}</p>
             </div>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">Quick Actions</h3>
+        </div>
+
+        <div className="mb-6 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-900">Quick Actions</h3>
+        </div>
+        
+        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium text-slate-900">Mark All as Fully Paid</h4>
+              <p className="text-sm text-slate-600">Add payments for all unpaid members this month</p>
+            </div>
             <button
               onClick={handleMarkAllPaid}
-              className="w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+              className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700"
             >
               Mark All as Fully Paid
             </button>
@@ -303,18 +383,19 @@ export default function PaymentsPage() {
                       <td className="py-3 px-4">{payments.length}</td>
                       <td className="py-3 px-4">
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => setExpandedMember(expandedMember === member.id ? null : member.id)}
-                            className="text-blue-600 hover:text-blue-800"
-                          >
-                            {expandedMember === member.id ? 'Collapse' : 'Expand'}
-                          </button>
-                          {summary?.balance_due! > 0 && (
+                          {expandedMember === member.id ? (
                             <button
-                              onClick={() => setShowAddPayment(showAddPayment === member.id ? null : member.id)}
-                              className="text-indigo-600 hover:text-indigo-800"
+                              onClick={() => setExpandedMember(null)}
+                              className="text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-200 hover:bg-blue-50"
                             >
-                              + Add Payment
+                              Collapse
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setExpandedMember(member.id)}
+                              className="bg-green-600 text-white hover:bg-green-700 px-3 py-1 rounded text-sm"
+                            >
+                              + Add
                             </button>
                           )}
                         </div>
@@ -323,71 +404,111 @@ export default function PaymentsPage() {
 
                     {expandedMember === member.id && (
                       <tr className="bg-slate-50">
-                        <td colSpan={7} className="py-3 px-4">
-                          <div className="space-y-2">
-                            {payments.length === 0 ? (
-                              <p className="text-slate-500">No transactions</p>
-                            ) : (
-                              payments.map((payment) => (
-                                <div key={payment.id} className="flex items-center justify-between bg-white p-3 rounded border border-slate-200">
+                        <td colSpan={7} className="py-3 px-4 pl-2">
+                          <div className="space-y-4 border-l-4 border-green-200 pl-4">
+                            {/* Payment Entry Form */}
+                            {showAddPayment === member.id ? (
+                              <div className="bg-white rounded-lg border border-slate-200 p-4">
+                                <h4 className="text-sm font-medium text-slate-700 mb-3">Add New Payment</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                   <div>
-                                    <p className="font-medium text-slate-900">${payment.amount}</p>
-                                    <p className="text-sm text-slate-500">
-                                      {new Date(payment.recorded_at).toLocaleString()}
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                                      Amount (BND)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={newPaymentAmount}
+                                      onChange={(e) => setNewPaymentAmount(e.target.value)}
+                                      placeholder="0.00"
+                                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 text-sm"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                      Suggested: BND{(member.group_count || 1) * 100}
                                     </p>
-                                    {payment.notes && <p className="text-sm text-slate-600">{payment.notes}</p>}
                                   </div>
-                                  <button
-                                    onClick={() => handleDeletePayment(payment.id)}
-                                    className="text-red-600 hover:text-red-800"
-                                  >
-                                    Delete
-                                  </button>
+                                  <div>
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                                      Notes (Optional)
+                                    </label>
+                                    <textarea
+                                      value={manualPaymentNotes}
+                                      onChange={(e) => setManualPaymentNotes(e.target.value)}
+                                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 text-sm"
+                                      rows={2}
+                                      placeholder="Add notes..."
+                                    />
+                                  </div>
+                                  <div className="flex items-end gap-2">
+                                    <button
+                                      onClick={() => handleAddPayment(member.id)}
+                                      disabled={!newPaymentAmount || Number(newPaymentAmount) <= 0}
+                                      className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:bg-slate-400 text-sm"
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setShowAddPayment(null)
+                                        setNewPaymentAmount('')
+                                        setManualPaymentNotes('')
+                                      }}
+                                      className="text-slate-600 hover:text-slate-800 px-3 py-2 text-sm"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
                                 </div>
-                              ))
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <h4 className="text-sm font-medium text-slate-700">Payment History</h4>
+                                  <p className="text-xs text-slate-500">Total: {payments.length} payment(s)</p>
+                                </div>
+                                <button
+                                  onClick={() => setShowAddPayment(member.id)}
+                                  className="bg-green-600 text-white hover:bg-green-700 px-3 py-1 rounded text-sm"
+                                >
+                                  + Add Payment
+                                </button>
+                              </div>
                             )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-
-                    {showAddPayment === member.id && (
-                      <tr className="bg-indigo-50">
-                        <td colSpan={7} className="py-3 px-4">
-                          <div className="flex items-center gap-4">
-                            <div className="flex-1">
-                              <label className="block text-sm font-medium text-slate-700 mb-1">
-                                Payment Amount (BND)
-                              </label>
-                              <input
-                                type="number"
-                                min="0"
-                                max={summary?.balance_due || (member.group_count || 1) * 100}
-                                value={newPaymentAmount}
-                                onChange={(e) => setNewPaymentAmount(Number(e.target.value))}
-                                placeholder={`Max: BND${summary?.balance_due || (member.group_count || 1) * 100}`}
-                                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
-                              />
-                              <p className="text-xs text-slate-500 mt-1">
-                                Suggested: BND{(member.group_count || 1) * 100} ({member.group_count || 1} group(s))
-                              </p>
+                            
+                            {/* Payment List */}
+                            <div className="space-y-2">
+                              {payments.length === 0 ? (
+                                <div className="text-center py-4 bg-white rounded-lg border border-slate-200">
+                                  <p className="text-slate-500 text-sm">No payments recorded</p>
+                                  <p className="text-xs text-slate-400 mt-1">Click "+ Add Payment" above to add a payment</p>
+                                </div>
+                              ) : (
+                                payments.map((payment) => (
+                                  <div key={payment.id} className="bg-white rounded-lg border border-slate-200 p-3">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex-1">
+                                        <div className="flex items-center gap-3">
+                                          <span className="font-semibold text-slate-900">BND{payment.amount}</span>
+                                          <span className="text-xs text-slate-500">
+                                            {new Date(payment.recorded_at).toLocaleDateString()}
+                                          </span>
+                                        </div>
+                                        {payment.notes && (
+                                          <p className="text-sm text-slate-600 mt-1">{payment.notes}</p>
+                                        )}
+                                      </div>
+                                      <button
+                                        onClick={() => handleDeletePayment(payment.id)}
+                                        className="text-red-600 hover:text-red-800 px-2 py-1 rounded text-sm hover:bg-red-50"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
                             </div>
-                            <button
-                              onClick={() => handleAddPayment(member.id)}
-                              disabled={newPaymentAmount <= 0}
-                              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:bg-slate-400"
-                            >
-                              Add Payment
-                            </button>
-                            <button
-                              onClick={() => {
-                                setShowAddPayment(null)
-                                setNewPaymentAmount(0)
-                              }}
-                              className="text-slate-600 hover:text-slate-800"
-                            >
-                              Cancel
-                            </button>
                           </div>
                         </td>
                       </tr>
@@ -398,8 +519,7 @@ export default function PaymentsPage() {
             </tbody>
           </table>
         </div>
-
-              </main>
+      </main>
     </div>
   )
 }
