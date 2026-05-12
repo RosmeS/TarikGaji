@@ -1,11 +1,64 @@
 {
   "name": "Tarik Gaji",
-  "short_name": "TarikGaji",
-  "description": "Multi-Group Savings Tracker",
+  "short_name": "Tarik Gaji",
+  "description": "Group-based rotating savings scheme management system",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#4F46E5",
-  "orientation": "portrait",
-  "icons": []
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View payment overview and statistics",
+      "url": "/dashboard",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "short_name": "Payments",
+      "description": "Manage member payments and transactions",
+      "url": "/payments",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Members",
+      "short_name": "Members",
+      "description": "Manage group members and information",
+      "url": "/members",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
 }

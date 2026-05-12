@@ -183,12 +183,11 @@ export default function PaymentsPage() {
       setNewPaymentAmount('')
       setManualPaymentNotes('')
       setShowAddPayment(null)
+      loadPaymentSummary()
+      loadPaymentEntries()
       
-      // Wait a moment for database to update, then reload
-      setTimeout(async () => {
-        await loadPaymentSummary()
-        await loadPaymentEntries()
-      }, 500)
+      // Trigger dashboard update
+      window.dispatchEvent(new CustomEvent('payment-updated', { detail: { timestamp: Date.now() } }))
     } else {
       alert('Error adding payment: ' + error.message)
       console.error('Payment insertion error:', error)
@@ -201,6 +200,9 @@ export default function PaymentsPage() {
       if (!error) {
         loadPaymentSummary()
         loadPaymentEntries()
+        
+        // Trigger dashboard update
+        window.dispatchEvent(new CustomEvent('payment-updated', { detail: { timestamp: Date.now() } }))
       } else {
         alert('Error deleting payment: ' + error.message)
       }
@@ -234,6 +236,16 @@ export default function PaymentsPage() {
   const handleMarkAllPaid = async () => {
     if (!activeCycle) return
 
+    // Show loading state
+    const originalButton = document.querySelector('[data-testid="mark-all-paid-button"]') as HTMLButtonElement
+    if (originalButton) {
+      originalButton.textContent = 'Processing...'
+      originalButton.disabled = true
+    }
+
+    let processedCount = 0
+    let errorCount = 0
+
     for (const member of members) {
       const paymentAmount = await calculatePaymentAmount(member.id)
       
@@ -243,13 +255,33 @@ export default function PaymentsPage() {
       )
       
       if (!existingPayment) {
-        await supabase.from('payment_entries').insert({
-          cycle_id: activeCycle.id,
-          member_id: member.id,
-          month_number: selectedMonth,
-          amount: paymentAmount,
-        })
+        try {
+          await supabase.from('payment_entries').insert({
+            cycle_id: activeCycle.id,
+            member_id: member.id,
+            month_number: selectedMonth,
+            amount: paymentAmount,
+          })
+          processedCount++
+        } catch (error) {
+          errorCount++
+          console.error('Payment insertion error:', error)
+        }
+      } else {
+        processedCount++ // Already had payment
       }
+    }
+
+    // Restore button state
+    if (originalButton) {
+      if (errorCount === 0) {
+        originalButton.textContent = `Marked ${processedCount} members as paid!`
+        originalButton.className = 'bg-green-600 text-white px-6 py-2 rounded-lg'
+      } else {
+        originalButton.textContent = `Error: ${errorCount} failed`
+        originalButton.className = 'bg-red-600 text-white px-6 py-2 rounded-lg'
+      }
+      originalButton.disabled = false
     }
 
     loadPaymentSummary()
@@ -299,24 +331,29 @@ export default function PaymentsPage() {
         <GroupSwitcher groups={groups} />
       </div>
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <h2 className="text-2xl font-bold text-slate-900">Payments</h2>
-          <select
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(Number(e.target.value))}
-            className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
-          >
-            {Array.from({ length: 12 }, (_, i) => (
-              <option key={i + 1} value={i + 1}>
-                Month {i + 1}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="text-sm text-slate-600">
+              Payment Management
+            </div>
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
+            >
+              {Array.from({ length: 12 }, (_, i) => (
+                <option key={i + 1} value={i + 1}>
+                  Month {i + 1}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 mb-6">
           <h3 className="text-lg font-semibold text-slate-900 mb-4">Collection Summary</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className="text-center">
               <p className="text-sm text-slate-600 mb-1">Total Collected</p>
               <p className="text-2xl font-bold text-green-600">BND{totalCollected}</p>
@@ -344,6 +381,7 @@ export default function PaymentsPage() {
             </div>
             <button
               onClick={handleMarkAllPaid}
+              data-testid="mark-all-paid-button"
               className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700"
             >
               Mark All as Fully Paid

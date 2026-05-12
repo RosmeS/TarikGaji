@@ -227,15 +227,20 @@ export default function MembersPage() {
       <div className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-10">
         <GroupSwitcher groups={groups} />
       </div>
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
+      <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl font-bold text-slate-900">Members</h2>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 font-medium shadow-md"
-          >
-            + Add Member
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-slate-600">
+              Member Management
+            </div>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 font-medium shadow-md"
+            >
+              + Add Member
+            </button>
+          </div>
         </div>
 
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">

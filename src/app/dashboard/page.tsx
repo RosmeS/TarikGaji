@@ -110,6 +110,42 @@ export default function DashboardPage({
     if (data) setPaymentSummary(data)
   }
 
+  // Real-time payment summary refresh
+  const refreshPaymentSummary = async () => {
+    if (activeCycle) {
+      await loadPaymentSummary()
+    }
+  }
+
+  // Listen for payment changes from other pages
+  useEffect(() => {
+    const handlePaymentUpdate = () => {
+      refreshPaymentSummary()
+    }
+
+    // Listen for custom event when payments are updated
+    window.addEventListener('payment-updated', handlePaymentUpdate)
+    
+    // Also listen for storage changes (fallback)
+    const handleStorageChange = () => {
+      refreshPaymentSummary()
+    }
+    
+    window.addEventListener('storage', handleStorageChange)
+    
+    return () => {
+      window.removeEventListener('payment-updated', handlePaymentUpdate)
+      window.removeEventListener('storage', handleStorageChange)
+    }
+  }, [activeCycle])
+
+  // Refresh payment summary when active cycle changes
+  useEffect(() => {
+    if (activeCycle) {
+      refreshPaymentSummary()
+    }
+  }, [activeCycle])
+
   const handleSelectRecipient = async (memberId: string) => {
     if (!activeCycle) return
     
@@ -190,7 +226,12 @@ export default function DashboardPage({
         <GroupSwitcher groups={groups} />
       </div>
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <h2 className="text-2xl font-bold text-slate-900 mb-6">Dashboard</h2>
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <h2 className="text-2xl font-bold text-slate-900">Dashboard</h2>
+          <div className="text-sm text-slate-600">
+            Overview
+          </div>
+        </div>
 
         <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
