@@ -5,11 +5,9 @@ import { Group } from '@/types'
 
 interface GroupSwitcherProps {
   groups: Group[]
-  activeGroupId?: string
-  onGroupChange?: (groupId: string) => void
 }
 
-export function GroupSwitcher({ groups, activeGroupId, onGroupChange }: GroupSwitcherProps) {
+export function GroupSwitcher({ groups }: GroupSwitcherProps) {
   const { activeGroup, setActiveGroup } = useGroupStore()
 
   return (
@@ -17,18 +15,15 @@ export function GroupSwitcher({ groups, activeGroupId, onGroupChange }: GroupSwi
       {groups.map((group) => (
         <button
           key={group.id}
-          onClick={() => {
-            setActiveGroup(group)
-            onGroupChange?.(group.id)
-          }}
+          onClick={() => setActiveGroup(group)}
           className={`
             px-4 py-2 rounded-lg font-medium transition-all
-            ${activeGroupId === group.id
+            ${activeGroup?.id === group.id
               ? 'text-white shadow-lg'
               : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }
           `}
-          style={activeGroupId === group.id ? { backgroundColor: group.color } : {}}
+          style={activeGroup?.id === group.id ? { backgroundColor: group.color } : {}}
         >
           {group.name}
         </button>

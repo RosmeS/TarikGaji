@@ -4,14 +4,14 @@ import React, { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { GroupSwitcher } from '@/components/GroupSwitcher'
 import { PaymentStatusBadge } from '@/components/PaymentStatusBadge'
-import { Group, Member, Cycle, PaymentEntry, PaymentSummary } from '@/types'
-
+import { Group, Member, Cycle, Schedule, PaymentEntry, PaymentSummary } from '@/types'
 
 export default function PaymentsPage() {
   const [groups, setGroups] = useState<Group[]>([])
   const [activeGroupId, setActiveGroupId] = useState<string>('')
   const [activeCycle, setActiveCycle] = useState<Cycle | null>(null)
   const [members, setMembers] = useState<Member[]>([])
+  const [schedule, setSchedule] = useState<Schedule[]>([])
   const [paymentSummary, setPaymentSummary] = useState<PaymentSummary[]>([])
   const [paymentEntries, setPaymentEntries] = useState<PaymentEntry[]>([])
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1)
@@ -26,20 +26,18 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     if (activeGroupId) {
-      loadActiveCycle(activeGroupId)
-      loadMembers(activeGroupId)
+      loadActiveCycle()
+      loadMembers()
     }
   }, [activeGroupId])
 
   useEffect(() => {
-  if (activeCycle) {
-    console.log('Active cycle found:', activeCycle)
-    loadPaymentSummary()
-    loadPaymentEntries()
-  } else {
-    console.log('No active cycle found, waiting...')
-  }
-}, [activeCycle, selectedMonth])
+    if (activeCycle) {
+      loadSchedule()
+      loadPaymentSummary()
+      loadPaymentEntries()
+    }
+  }, [activeCycle, selectedMonth])
 
   const loadGroups = async () => {
     const { data } = await supabase.from('groups').select('*').order('name')
@@ -49,117 +47,80 @@ export default function PaymentsPage() {
     }
   }
 
-  const loadActiveCycle = async (groupId: string) => {
-  const { data } = await supabase
-    .from('cycles')
-    .select('*')
-    .eq('is_active', true)
-    .eq('group_id', groupId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
-  setActiveCycle(data)
-}
+  const loadActiveCycle = async () => {
+    const { data } = await supabase
+      .from('cycles')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+    setActiveCycle(data)
+  }
 
-  const loadMembers = async (groupId: string) => {
-
-  const { data: groupMemberships } = await supabase
-    .from('group_members')
-    .select('member_id, members!inner(*)')
-    .eq('group_id', groupId)
-    .eq('members.is_active', true)
-
-  if (!groupMemberships) return
-
-  const membersWithCounts = await Promise.all(
-    groupMemberships.map(async (gm: any) => {
-      const { data: allMemberships } = await supabase
-        .from('group_members')
-        .select('group_id')
-        .eq('member_id', gm.members.id)
-
-      return {
-        ...gm.members,
-        group_count: allMemberships?.length || 1
-      }
-    })
-  )
-
-  setMembers(membersWithCounts)
-}
-
-  
-  
-  const loadPaymentSummary = async () => {
-  if (!activeCycle || !activeGroupId) return
-  
-  console.log('Loading payment summary for cycle:', activeCycle?.id, 'month:', selectedMonth, 'group:', activeGroupId)
-  
-  try {
-    // Filter by group membership since table doesn't have group info
-    const { data: groupMemberships } = await supabase
-      .from('group_members')
-      .select('member_id')
-      .eq('group_id', activeGroupId)
+  const loadMembers = async () => {
+    // Load all active members with their group counts
+    const { data: allMembers } = await supabase
+      .from('members')
+      .select('*')
+      .eq('is_active', true)
     
-    const memberIdsInGroup = groupMemberships?.map(gm => gm.member_id) || []
-    console.log('Member IDs in group:', memberIdsInGroup)
+    if (!allMembers) return
+
+    // Count groups for each member
+    const membersWithCounts = await Promise.all(
+      allMembers.map(async (member: any) => {
+        const { data: groupMemberships } = await supabase
+          .from('group_members')
+          .select('group_id')
+          .eq('member_id', member.id)
+        
+        return {
+          ...member,
+          group_count: groupMemberships?.length || 1
+        }
+      })
+    )
     
-    const { data, error } = await supabase
-      .from('payment_summary')
+    setMembers(membersWithCounts)
+  }
+
+  const loadSchedule = async () => {
+    if (!activeCycle) return
+    const { data } = await supabase
+      .from('schedule')
       .select('*')
       .eq('cycle_id', activeCycle.id)
-      .eq('month_number', selectedMonth)
-    
-    console.log('Payment summary data:', data)
-    console.log('Payment summary error:', error)
-    
-    const validSummary = data?.filter(summary => memberIdsInGroup.includes(summary.member_id)) || []
-    console.log('Valid summary after filtering:', validSummary)
-    
-    setPaymentSummary(validSummary)
-  } catch (err: any) {
-    console.error('Error in loadPaymentSummary:', err)
-    alert('Error loading payment summary: ' + err.message)
+      .order('month_number')
+    setSchedule(data || [])
   }
-}
 
-  const loadPaymentEntries = async () => {
-  if (!activeCycle || !activeGroupId) return
-  
-  console.log('Loading payment entries for cycle:', activeCycle?.id, 'month:', selectedMonth, 'group:', activeGroupId)
-  
-  try {
-    // Get payment entries with member info
-    const { data, error } = await supabase
-      .from('payment_entries')
-      .select('*, members!inner(*)')
+  const loadPaymentSummary = async () => {
+    if (!activeCycle) return
+    const { data } = await supabase
+      .from('payment_summary')
+      .select('*, members!inner(member_id)')
       .eq('cycle_id', activeCycle.id)
       .eq('month_number', selectedMonth)
-      .eq('members.is_active', true)
+    
+    // Filter out deleted members
+    const validSummary = data?.filter(summary => summary.members) || []
+    setPaymentSummary(validSummary)
+  }
+
+  const loadPaymentEntries = async () => {
+    if (!activeCycle) return
+    const { data } = await supabase
+      .from('payment_entries')
+      .select('*, members!inner(member_id)')
+      .eq('cycle_id', activeCycle.id)
+      .eq('month_number', selectedMonth)
       .order('recorded_at', { ascending: false })
     
-    console.log('Payment entries data:', data)
-    console.log('Payment entries error:', error)
-    
-    // Filter by group membership
-    const { data: groupMemberships } = await supabase
-      .from('group_members')
-      .select('member_id')
-      .eq('group_id', activeGroupId)
-    
-    const memberIdsInGroup = groupMemberships?.map(gm => gm.member_id) || []
-    console.log('Member IDs in group:', memberIdsInGroup)
-    
-    const validEntries = data?.filter(entry => memberIdsInGroup.includes(entry.member_id)) || []
-    console.log('Valid entries after filtering:', validEntries)
-    
+    // Filter out deleted members
+    const validEntries = data?.filter(entry => entry.members) || []
     setPaymentEntries(validEntries)
-  } catch (err: any) {
-    console.error('Error in loadPaymentEntries:', err)
-    alert('Error loading payment entries: ' + err.message)
   }
-}
 
   const calculatePaymentAmount = async (memberId: string) => {
     // Count how many groups this member belongs to
@@ -185,6 +146,7 @@ export default function PaymentsPage() {
     if (!error) {
       setNewPaymentAmount(0)
       setShowAddPayment(null)
+      loadPaymentSummary()
       loadPaymentEntries()
     } else {
       alert('Error adding payment: ' + error.message)
@@ -204,43 +166,49 @@ export default function PaymentsPage() {
   }
 
   const handleMarkAllPaid = async () => {
-  if (!activeCycle) return
+    if (!activeCycle) return
 
-  const unpaidMembers = members.filter(
-    member => !paymentEntries.find(p => p.member_id === member.id)
-  )
+    for (const member of members) {
+      const paymentAmount = await calculatePaymentAmount(member.id)
+      
+      // Check if member already has payment for this month
+      const existingPayment = paymentEntries.find(
+        p => p.member_id === member.id && p.month_number === selectedMonth
+      )
+      
+      if (!existingPayment) {
+        await supabase.from('payment_entries').insert({
+          cycle_id: activeCycle.id,
+          member_id: member.id,
+          month_number: selectedMonth,
+          amount: paymentAmount,
+        })
+      }
+    }
 
-  if (unpaidMembers.length === 0) return
-
-  const inserts = unpaidMembers.map(member => ({
-    cycle_id: activeCycle.id,
-    member_id: member.id,
-    month_number: selectedMonth,
-    amount: (member.group_count || 1) * 100,
-  }))
-
-  const { error } = await supabase.from('payment_entries').insert(inserts)
-  if (!error) {
+    loadPaymentSummary()
     loadPaymentEntries()
-  } else {
-    alert('Error marking all paid: ' + error.message)
   }
-}
 
   const getMemberPayments = (memberId: string) => {
     return paymentEntries.filter(p => p.member_id === memberId)
   }
 
   const getMemberSummary = (memberId: string) => {
-    return paymentSummary.find(s => s.member_id === memberId)
+    return paymentSummary.find(p => p.member_id === memberId)
   }
 
+  const getActiveMemberIds = () => {
+    return members
+      .filter(member => member.is_active)
+      .map(member => member.id)
+  }
 
   if (!activeCycle) {
     return (
       <div className="bg-slate-50 text-slate-900 min-h-full">
         <div className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-10">
-          <GroupSwitcher groups={groups} activeGroupId={activeGroupId} onGroupChange={setActiveGroupId} />
+          <GroupSwitcher groups={groups} />
         </div>
         <main className="max-w-7xl mx-auto px-6 py-8">
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
@@ -254,14 +222,13 @@ export default function PaymentsPage() {
     )
   }
 
-  const totalCollected = paymentSummary.reduce((sum: number, s: PaymentSummary) => sum + s.total_paid, 0)
-  const totalOutstanding = members.reduce((sum, m) => sum + (m.group_count || 1) * 100, 0) - totalCollected
-
+  const totalCollected = paymentSummary.reduce((sum, p) => sum + p.total_paid, 0)
+  const totalOutstanding = members.length * 100 // Always show expected total outstanding
 
   return (
     <div className="bg-slate-50 text-slate-900 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-10">
-        <GroupSwitcher groups={groups} activeGroupId={activeGroupId} onGroupChange={setActiveGroupId} />
+        <GroupSwitcher groups={groups} />
       </div>
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
@@ -319,8 +286,8 @@ export default function PaymentsPage() {
             </thead>
             <tbody>
               {members.map((member) => {
-                const payments = getMemberPayments(member.id)
                 const summary = getMemberSummary(member.id)
+                const payments = getMemberPayments(member.id)
                 const status = summary?.status || 'not_paid'
 
                 return (
@@ -331,8 +298,8 @@ export default function PaymentsPage() {
                       <td className="py-3 px-4">
                         <PaymentStatusBadge status={status} />
                       </td>
-                      <td className="py-3 px-4">BND{summary?.total_paid || 0}</td>
-<td className="py-3 px-4">BND{summary?.balance_due ?? (member.group_count || 1) * 100}</td>
+                      <td className="py-3 px-4">${summary?.total_paid || 0}</td>
+                      <td className="py-3 px-4">${summary?.balance_due || 100}</td>
                       <td className="py-3 px-4">{payments.length}</td>
                       <td className="py-3 px-4">
                         <div className="flex gap-2">
@@ -342,12 +309,9 @@ export default function PaymentsPage() {
                           >
                             {expandedMember === member.id ? 'Collapse' : 'Expand'}
                           </button>
-                          {(summary?.balance_due ?? (member.group_count || 1) * 100) > 0 && (
+                          {summary?.balance_due! > 0 && (
                             <button
-                              onClick={() => {
-  setShowAddPayment(showAddPayment === member.id ? null : member.id)
-  setNewPaymentAmount(0)
-}}
+                              onClick={() => setShowAddPayment(showAddPayment === member.id ? null : member.id)}
                               className="text-indigo-600 hover:text-indigo-800"
                             >
                               + Add Payment
@@ -367,7 +331,7 @@ export default function PaymentsPage() {
                               payments.map((payment) => (
                                 <div key={payment.id} className="flex items-center justify-between bg-white p-3 rounded border border-slate-200">
                                   <div>
-                                    <p className="font-medium text-slate-900">BND{payment.amount}</p>
+                                    <p className="font-medium text-slate-900">${payment.amount}</p>
                                     <p className="text-sm text-slate-500">
                                       {new Date(payment.recorded_at).toLocaleString()}
                                     </p>
@@ -438,4 +402,4 @@ export default function PaymentsPage() {
               </main>
     </div>
   )
-}       
+}
